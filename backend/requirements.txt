@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+openai
+chromadb
+rank-bm25
+icalendar
+requests
