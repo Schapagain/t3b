@@ -14,8 +14,10 @@ class ChatRequest(BaseModel):
 class Card(BaseModel):
     id: str
     name: str
-    due: str | None
     desc: str
+    due: float | None
     url: str
     status: str
     assignee: str | None
+    assignee_first_name: str | None
+    assignee_last_name: str | None

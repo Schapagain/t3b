@@ -1,6 +1,7 @@
 import os
 import requests
 from models import Card
+from utils import iso_to_timestamp
 
 TRELLO_API_KEY = os.getenv("TRELLO_API_KEY")
 TRELLO_TOKEN = os.getenv("TRELLO_TOKEN")
@@ -39,15 +40,18 @@ def get_all_cards() -> list[Card]:
     cards = []
     for raw in r.json():
         member_id = raw["idMembers"][0] if raw["idMembers"] else None
+        assignee = member_mapping.get(member_id) if member_id else None
         cards.append(
             Card(
                 id=raw["id"],
                 name=raw["name"],
-                due=raw["due"],
+                due=iso_to_timestamp(raw["due"]),
                 desc=raw["desc"],
                 url=raw["url"],
                 status=list_mapping.get(raw["idList"], "Unknown"),
-                assignee=member_mapping.get(member_id) if member_id else None,
+                assignee=assignee,
+                assignee_first_name=assignee.split()[0] if assignee else None,
+                assignee_last_name=assignee.split()[-1] if assignee else None,
             )
         )
     return cards

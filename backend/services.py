@@ -2,8 +2,7 @@ import os
 import chromadb
 from openai import OpenAI
 from functools import lru_cache
-
-OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+from constants import OPENAI_EMBEDDING_MODEL
 
 
 @lru_cache(maxsize=1)
