@@ -8,7 +8,7 @@ __pycache__/
 .env
 
 # ChromaDB
-kb/
+db
 
 # Node
 frontend/node_modules/

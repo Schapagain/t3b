@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { MessageBubble } from "@/components/message-bubble";
 import { ChatInput } from "@/components/chat-input";
+import { useSync } from "./hooks/useSync";
 
 export default function App() {
-  const [backendStatus, setBackendStatus] = useState("checking...");
+  const { sync, syncing, syncResult } = useSync();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
     {
@@ -39,13 +40,6 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((data) => setBackendStatus(data.status))
-      .catch(() => setBackendStatus("unreachable"));
-  }, []);
-
   async function handleSend() {
     if (!message.trim()) return;
     setMessages((messages) =>
@@ -75,8 +69,9 @@ export default function App() {
       <div className="max-w-4xl w-full py-4 mx-auto">
         <div className="flex gap-2 mb-8 items-center justify-between">
           <h1 className="text-2xl text-gray-50">T3B — Talk to the Board</h1>
-          <Button variant="outline" size="sm">
-            <RefreshCw /> Sync Trello
+          <Button variant="outline" size="sm" onClick={sync} disabled={syncing}>
+            <RefreshCw className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing..." : "Sync Trello"}
           </Button>
         </div>
 
