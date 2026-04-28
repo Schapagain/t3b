@@ -50,7 +50,7 @@ def exec_trello_sync(args: dict[str, Any]) -> dict[str, Any]:
         Text with number of cards synced successfully
     """
     last_synced_at = get_last_synced_at()
-    if True or last_synced_at and datetime.now() - last_synced_at < TRELLO_SYNC_TTL:
+    if last_synced_at and datetime.now() - last_synced_at < TRELLO_SYNC_TTL:
         return {
             "result": f"Cards were recently fetched at {last_synced_at}. "
             "They do not need to be synced at the moment. Other operations can continue.",
