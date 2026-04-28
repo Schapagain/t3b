@@ -52,6 +52,10 @@ const testCards = [
   },
 ];
 
+function EmptyChat() {
+  return <div>Hello, how can I help?</div>;
+}
+
 export default function App() {
   const { sync, syncing, syncResult } = useSync();
   const [message, setMessage] = useState("");
@@ -83,9 +87,6 @@ export default function App() {
       });
       const data = await res.json();
 
-      console.log("received messages:", data["history"]);
-      console.log("received cards:", data["cards"]);
-
       setMessages((messages) =>
         messages.concat({
           role: "assistant",
@@ -95,6 +96,7 @@ export default function App() {
           timestamp: Date.now(),
         }),
       );
+      setMessage("");
     } catch {
       setResponse("Error reaching backend.");
     } finally {
@@ -102,9 +104,16 @@ export default function App() {
     }
   }
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
-    <div className="min-h-screen min-w-screen bg-slate-700 text-2xl">
-      <div className="max-w-5xl w-full py-4 mx-auto">
+    <div className="min-h-screen min-w-screen bg-slate-700 text-4xl">
+      <div className="max-w-5xl w-full py-4 mx-auto h-full">
         <div className="flex gap-2 mb-8 items-center justify-between">
           <h1 className="text-2xl text-gray-50">T3B — Talk to the Board</h1>
           <Button variant="outline" size="sm" onClick={sync} disabled={syncing}>
@@ -113,26 +122,38 @@ export default function App() {
           </Button>
         </div>
 
-        <ScrollArea className="h-[60vh] my-4 mt-22 pr-8">
-          <div className="flex flex-col gap-4">
-            {messages.map((msg, idx) => (
-              <MessageBubble key={idx} msg={msg} />
-            ))}
-            <div ref={bottomRef} />
-          </div>
+        <ScrollArea className="h-[75vh] my-4 mt-12 pr-8">
+          {messages.length > 0 ? (
+            <div className="flex flex-col gap-4">
+              {messages.map((msg, idx) => (
+                <MessageBubble key={idx} msg={msg} />
+              ))}
+              <div ref={bottomRef} />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center text-gray-50 pt-26">
+              <EmptyChat />
+            </div>
+          )}
         </ScrollArea>
 
-        <div className="flex gap-4 items-end">
+        <div className="flex gap-4 items-start h-12 relative">
           <ChatInput
             rows={1}
-            className="resize-none overflow-hidden min-h-0 text-gray-50"
+            className="resize-none overflow-hidden text-gray-50 min-h-0 w-4/5 h-full"
             placeholder="Ask something..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            onKeyDown={handleKeyDown}
+            disabled={loading}
           />
-          <Button size="lg" onClick={handleSend} disabled={loading}>
-            {loading ? "..." : "Send"}
+          <Button
+            className="h-full w-1/5"
+            size="lg"
+            onClick={handleSend}
+            disabled={loading}
+          >
+            {loading ? "Thinking..." : "Send"}
           </Button>
         </div>
       </div>
