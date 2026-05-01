@@ -98,9 +98,6 @@ def vector_search(
     """
     Search ChromaDB collection using vector similarity.
 
-    Note: ChromaDB returns distances, not similarities. For cosine distance,
-    similarity = 1 - distance.
-
     Args:
         query: search query.
         top_k: number of results to return.
