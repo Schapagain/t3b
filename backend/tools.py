@@ -1,11 +1,12 @@
 from typing import Any
-from ingest import re_index_db, get_last_synced_at, vector_search
+from ingest import re_index_db, get_last_synced_at, vector_search, upsert_cards
 from services import get_collection
 from utils import iso_to_timestamp, timestamp_to_date
 from jsonschema import validate, ValidationError
 from datetime import timedelta, datetime, timezone
 from constants import COLLECTION_NAME, TRELLO_SYNC_TTL
 from calendar_events import get_named_events
+from trello import update_card
 
 
 def exec_trello_sync(args: dict[str, Any]) -> dict[str, Any]:
@@ -16,7 +17,7 @@ def exec_trello_sync(args: dict[str, Any]) -> dict[str, Any]:
         args: Empty dictionary as no parameters are needed.
 
     Returns:
-        Text with number of cards synced successfully
+        Dictionary with key 'result' with sync status message
     """
     last_synced_at = get_last_synced_at()
     if last_synced_at and datetime.now() - last_synced_at < TRELLO_SYNC_TTL:
@@ -81,7 +82,8 @@ def exec_search_cards(args: dict[str, Any]) -> dict[str, Any]:
             as required by the search.
 
     Returns:
-        List of cards matched by the given metadata filters or query
+        Dictionary with key 'result' for summary of the search, and
+        key 'cards' for any cards that were found
     """
     collection = get_collection(COLLECTION_NAME)
     result = collection.get(
@@ -120,38 +122,61 @@ def exec_clock_now(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# def exec_update_card(args: dict[str, Any]) -> dict[str, Any]:
-#     """
-#     Update card in Trello, and trigger a re-index of
-#     ChromaDB if title or description was updated
+def exec_update_card(args: dict[str, Any]) -> dict[str, Any]:
+    """
+    Update card status, assignee or due date in Trello
+    and upsert ChromaDB with updated information
 
-#     Args:
-#         args: Dictionary with name, description, assignee,
-#         status, and due. Keys are optional and populated
-#             as required for an updated.
+    Args:
+        args: Dictionary with card_id, assignee and status.
+          Only card_id and one of assignee or status is required
+          as needed for the update.
 
-#     Returns:
-#         List of fields that were updated.
-#     """
-#     collection = get_collection(COLLECTION_NAME)
-#     result = collection.get(
-#         where=build_chroma_where(args),
-#         include=["documents", "metadatas"],
-#     )
-#     cards = result.get("metadatas", [])
+    Returns:
+        Dictionary with key 'result' for update status, and
+        key 'cards' with a list of one card if it was
+        successfully updated
+    """
 
-#     if args["query"]:
-#         semantic_results = vector_search(args["query"], 2, cards)
-#         cards = [res[3] for res in semantic_results]
+    card_id = args["card_id"]
+    assignee_name = args["assignee"]
+    status = args["status"]
+    due = args["due"]
 
-#     summary = "\n".join(
-#         f"- {card['name']} | assignee: {card.get('assignee')} | due: {timestamp_to_date(card.get('due'))} | status: {card.get('status')}"
-#         for card in cards
-#     )
-#     return {
-#         "result": f"Found {len(cards)} matching cards:\n{summary}",
-#         "cards": cards,
-#     }
+    collection = get_collection(COLLECTION_NAME)
+    result = collection.get(
+        where={"id": {"$eq": card_id}},
+        include=["metadatas"],
+    )
+
+    cards = result.get("metadatas", [])
+
+    if not cards:
+        raise ValueError(f"Card with id {card_id!r} not found")
+
+    card = cards[0]
+    assignee_update_msg = None
+    status_update_msg = None
+    due_update_msg = None
+    if assignee_name is not None:
+        card["assignee"] = assignee_name
+        assignee_update_msg = f"new assignee: {assignee_name}"
+
+    if status is not None:
+        card["status"] = status
+        status_update_msg = f"new status: {status}"
+
+    if due is not None:
+        card["due"] = due
+        due_udpate_msg = f"new due: {due}"
+
+    updated_card = update_card(card)
+    upsert_cards([card])
+
+    return {
+        "result": f"Card updated successfully. {assignee_update_msg} {status_update_msg} {due_update_msg}",
+        "cards": [updated_card],
+    }
 
 
 def exec_check_schedule_conflicts(args: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +189,9 @@ def exec_check_schedule_conflicts(args: dict[str, Any]) -> dict[str, Any]:
             as required to narrow down the cards of interest.
 
     Returns:
-        List of cards whose due dates conflict with vacation window(s)
+        Dictionary with key 'result' for summary of the conflict check, and
+        key 'cards' for any cards' whose due dates conflict
+        with vacation window(s)
     """
 
     assignee = args["assignee"]
@@ -373,52 +400,43 @@ TOOL_SEARCH_CARDS = {
     },
 }
 
-# TOOL_TRELLO_UPDATE_CARD = {
-#     "type": "function",
-#     "function": {
-#         "name": "trello_update_card",
-#         "description": "Update a Trello card's fields. Only include fields you want to change.",
-#         "parameters": {
-#             "type": "object",
-#             "properties": {
-#                 "card_id": {
-#                     "type": "string",
-#                     "description": "The Trello card ID to update",
-#                 },
-#                 "name": {
-#                     "type": ["string", "null"],
-#                     "description": "New title for the card",
-#                 },
-#                 "desc": {
-#                     "type": ["string", "null"],
-#                     "description": "New description for the card",
-#                 },
-#                 "due": {
-#                     "type": ["string", "null"],
-#                     "description": "New due date in ISO 8601 format (e.g. 2026-04-28T23:59:00.000Z)",
-#                 },
-#                 "status": {
-#                     "type": ["string", "null"],
-#                     "description": "Current status of the card (Trello list)",
-#                     "enum": [
-#                         "Backlog",
-#                         "Triage",
-#                         "In Progress",
-#                         "In Review",
-#                         "Done",
-#                         None,
-#                     ],
-#                 },
-#                 "assignee": {
-#                     "type": ["string", "null"],
-#                     "description": "Full name of the new assignee."
-#                     "Full name of the assignee",
-#                 },
-#             },
-#             "required": ["card_id", "name", "desc", "due", "status"],
-#         },
-#     },
-# }
+TOOL_UPDATE_CARD = {
+    "type": "function",
+    "function": {
+        "name": "update_card",
+        "description": "Update a card. Only include fields you want to change.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "The card ID to update",
+                },
+                "due": {
+                    "type": ["string", "null"],
+                    "description": "New due date in ISO 8601 format (e.g. 2026-04-28T23:59:00.000Z)",
+                },
+                "status": {
+                    "type": ["string", "null"],
+                    "description": "New status of the card (Trello list)",
+                    "enum": [
+                        "Backlog",
+                        "Triage",
+                        "In Progress",
+                        "In Review",
+                        "Done",
+                        None,
+                    ],
+                },
+                "assignee": {
+                    "type": ["string", "null"],
+                    "description": "Full name of the new assignee.",
+                },
+            },
+            "required": ["card_id", "due", "status", "assignee"],
+        },
+    },
+}
 
 
 # Map tool names to their executors
@@ -426,7 +444,7 @@ TOOL_EXECUTORS = {
     "trello_sync": exec_trello_sync,
     "search_cards": exec_search_cards,
     "clock_now": exec_clock_now,
-    # "update_card": exec_update_card,
+    "update_card": exec_update_card,
     "check_schedule_conflicts": exec_check_schedule_conflicts,
 }
 
@@ -436,6 +454,7 @@ TOOL_SCHEMAS = {
     "search_cards": TOOL_SEARCH_CARDS["function"]["parameters"],
     "clock_now": TOOL_CLOCK_NOW["function"]["parameters"],
     "check_schedule_conflicts": TOOL_CHECK_SCHEDULE_CONFLICTS["function"]["parameters"],
+    "update_card": TOOL_UPDATE_CARD["function"]["parameters"],
 }
 
 TOOLS = [
@@ -443,4 +462,5 @@ TOOLS = [
     TOOL_SEARCH_CARDS,
     TOOL_CLOCK_NOW,
     TOOL_CHECK_SCHEDULE_CONFLICTS,
+    TOOL_UPDATE_CARD,
 ]

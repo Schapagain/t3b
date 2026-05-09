@@ -55,3 +55,27 @@ def get_all_cards() -> list[Card]:
             )
         )
     return cards
+
+
+def update_card(card: Card) -> Card:
+    list_mapping = {name: id for id, name in get_lists().items()}
+    member_mapping = {name: id for id, name in get_members().items()}
+
+    payload = {}
+    if card.status:
+        if card.status not in list_mapping:
+            raise ValueError(f"Unknown status: {card.status!r}")
+        payload["idList"] = list_mapping[card.status]
+    if card.assignee:
+        if card.assignee not in member_mapping:
+            raise ValueError(f"Unknown assignee: {card.assignee!r}")
+        payload["idMembers"] = [member_mapping[card.assignee]]
+
+    r = requests.put(
+        f"{BASE_URL}/cards/{card.id}",
+        params={**AUTH},
+        headers={"Accept": "application/json"},
+        json=payload,
+    )
+    r.raise_for_status()
+    return card
