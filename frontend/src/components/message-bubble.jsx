@@ -1,12 +1,55 @@
 import { cn } from "@/lib/utils";
 import { TrelloCard } from "./trello-card";
+import { CheckCheck, CircleX } from "lucide-react";
+import { Spinner } from "./ui/spinner";
+
+function getToolText(status, toolName) {
+  return status === "started"
+    ? `Using tool ${toolName}`
+    : status === "finished"
+      ? `Tool ${toolName} ran successfully`
+      : `${toolName} run failed`;
+}
+
+function ToolBubble({ tool }) {
+  const started = tool["status"] === "started";
+  const finished = tool["status"] === "finished";
+  const failed = tool["status"] === "failed";
+
+  return (
+    <div className="flex items-center mr-auto text-[#F9FAFB] text-[16px] gap-2">
+      {getToolText(tool["status"], tool.name)}
+      <div className="relative w-4 h-4">
+        <Spinner
+          className={cn(
+            "absolute left-0 top-0 transition-opacity duration-300",
+            started ? "opacity-100" : "opacity-0",
+          )}
+        />
+        <CheckCheck
+          size={16}
+          className={cn(
+            "absolute left-0 top-0 transition-opacity duration-300",
+            finished ? "opacity-100" : "opacity-0",
+          )}
+        />
+        <CircleX
+          size={16}
+          className={cn(
+            "text-red-400 absolute left-0 top-0 transition-opacity duration-300",
+            failed ? "opacity-100" : "opacity-0",
+          )}
+        />
+      </div>
+    </div>
+  );
+}
 
 function MessageBubble({ msg }) {
   const userMsgClasses = "ml-auto";
   const agentMsgClasses = "mr-auto";
 
   const leftBubble = msg.role === "assistant";
-  console.log("got cards:", msg);
   return (
     <div
       className={cn(
@@ -56,4 +99,4 @@ function MessageBubble({ msg }) {
   );
 }
 
-export { MessageBubble };
+export { MessageBubble, ToolBubble };

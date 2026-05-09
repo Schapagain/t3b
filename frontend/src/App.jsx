@@ -3,55 +3,30 @@ import "./index.css";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
-import { MessageBubble } from "@/components/message-bubble";
+import { MessageBubble, ToolBubble } from "@/components/message-bubble";
 import { ChatInput } from "@/components/chat-input";
 import { useSync } from "./hooks/useSync";
+import { Spinner } from "./components/ui/spinner";
 
 const feOnlyMode = false;
 
 const testCards = [
   {
     role: "user",
-    text: "Can you get all cards in review please?",
-    timestamp: 1777049629331,
+    text: "can you get all cards in progress due within 7 days?",
+    timestamp: 1778352008095,
   },
   {
-    role: "assistant",
-    text: 'I\'ve retrieved the cards that are currently "In Review." Here they are:\n\n1. **[Add social feed for following friends](https://trello.com/c/IN7NlTMN/5-add-social-feed-for-following-friends)**\n   - Assignee: Bob Demo\n   - Due: April 24, 2026\n\n2. **[Implement heart rate zone calculations](https://trello.com/c/ZMJshEpL/6-implement-heart-rate-zone-calculations)**\n   - Assignee: Alice Demo\n   - Due: April 25, 2026\n\n3. **[Write unit tests for workout logging API](https://trello.com/c/MolR0OxH/7-write-unit-tests-for-workout-logging-api)**\n   - Assignee: Dave Demo\n   - Due: April 24, 2026\n\nIf you need more details or further actions regarding these cards, please let me know!',
-    tools_used: ["trello_sync", "search_cards"],
-    cards: [
-      {
-        assignee: "Bob Demo",
-        status: "In Review",
-        name: "Add social feed for following friends",
-        id: "69e98ce01e61b4017ad67f75",
-        due: "2026-04-24T23:59:00.000Z",
-        url: "https://trello.com/c/IN7NlTMN/5-add-social-feed-for-following-friends",
-        desc: "",
-      },
-      {
-        url: "https://trello.com/c/ZMJshEpL/6-implement-heart-rate-zone-calculations",
-        due: "2026-04-25T23:59:00.000Z",
-        id: "69e98ce144168ee5fcf70fad",
-        name: "Implement heart rate zone calculations",
-        assignee: "Alice Demo",
-        status: "In Review",
-        desc: "",
-      },
-      {
-        assignee: "Dave Demo",
-        due: "2026-04-24T23:59:00.000Z",
-        url: "https://trello.com/c/MolR0OxH/7-write-unit-tests-for-workout-logging-api",
-        name: "Write unit tests for workout logging API",
-        id: "69e98ce2c58dac21682eddf6",
-        status: "In Review",
-        desc: "",
-      },
-    ],
-    timestamp: 1777049637688,
+    role: "tool",
+    status: "finished",
+    name: "clock_now",
+  },
+  {
+    role: "tool",
+    status: "failed",
+    name: "search_cards",
   },
 ];
-
 function EmptyChat() {
   return <div>Hello, how can I help?</div>;
 }
@@ -60,7 +35,7 @@ export default function App() {
   const { sync, syncing, syncResult } = useSync();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState(feOnlyMode ? testCards : []);
-  const [response, setResponse] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
 
@@ -78,27 +53,63 @@ export default function App() {
       }),
     );
     setLoading(true);
-    setResponse(null);
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: "demo", message }),
       });
-      const data = await res.json();
+      const streamReader = res.body.getReader();
+      const streamDecoder = new TextDecoder();
+      const dataPrefix = "data: ";
+      while (true) {
+        const { value, done } = await streamReader.read();
+        if (done) break;
+        const decoded = streamDecoder.decode(value);
+        const decodedMessages = decoded
+          .split("\n\n")
+          .filter((msg) => msg.length > 0)
+          .map((rawMsg) =>
+            rawMsg.slice(rawMsg.indexOf(dataPrefix) + dataPrefix.length),
+          )
+          .map((rawMsg) => JSON.parse(rawMsg));
 
-      setMessages((messages) =>
-        messages.concat({
-          role: "assistant",
-          text: data["agent_response"],
-          tools_used: data["tool_calls_used"],
-          cards: data["cards"],
-          timestamp: Date.now(),
-        }),
-      );
-      setMessage("");
-    } catch {
-      setResponse("Error reaching backend.");
+        setMessages((messages) => {
+          const newMessages = [...messages];
+          decodedMessages.forEach((msg) => {
+            if (msg["agent_response"]) {
+              (newMessages.push({
+                role: "assistant",
+                text: msg["agent_response"],
+                tools_used: msg["tool_calls_used"],
+                cards: msg["cards"],
+                timestamp: Date.now(),
+              }),
+                setMessage(""));
+            } else if (msg["tool_event"]) {
+              const toolStatus = msg["tool_event"]["status"];
+              if (toolStatus === "started") {
+                newMessages.push({
+                  role: "tool",
+                  status: toolStatus,
+                  name: msg["tool_event"]["name"],
+                });
+              } else {
+                const lastToolStartedIdx = newMessages.findLastIndex(
+                  (msg) => msg.role === "tool" && msg.status === "started",
+                );
+                newMessages[lastToolStartedIdx] = {
+                  ...newMessages[lastToolStartedIdx],
+                  status: toolStatus,
+                };
+              }
+            }
+          });
+          return newMessages;
+        });
+      }
+    } catch (e) {
+      console.error("Error:", e);
     } finally {
       setLoading(false);
     }
@@ -125,9 +136,22 @@ export default function App() {
         <ScrollArea className="h-[75vh] my-4 mt-12 pr-8">
           {messages.length > 0 ? (
             <div className="flex flex-col gap-4">
-              {messages.map((msg, idx) => (
-                <MessageBubble key={idx} msg={msg} />
-              ))}
+              {messages.map((msg, idx) =>
+                msg.role === "tool" ? (
+                  <ToolBubble key={idx} tool={msg} />
+                ) : (
+                  <MessageBubble key={idx} msg={msg} />
+                ),
+              )}
+              {loading &&
+                ((messages.slice(-1)[0].role === "tool" &&
+                  messages.slice(-1)[0].status !== "started") ||
+                  messages.slice(-1)[0].role === "user") && (
+                  <div className="flex gap-2 text-[#F9FAFB] text-[16px]">
+                    <Spinner />
+                    Thinking...
+                  </div>
+                )}
               <div ref={bottomRef} />
             </div>
           ) : (
