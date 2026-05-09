@@ -57,16 +57,16 @@ async def chat(body: ChatRequest) -> AsyncIterable[ChatResponse | ToolEventRespo
             }
         elif response["type"] == "tool_called":
             tool_name = response["content"]["name"]
-            yield {"tool_event": {"tool_called": tool_name}}
+            yield {"tool_event": {"name": tool_name, "status": "started"}}
         elif response["type"] == "tool_finished":
             tool_name = response["content"]["name"]
-            yield {"tool_event": {"tool_finished": tool_name}}
+            yield {"tool_event": {"name": tool_name, "status": "finished"}}
         elif response["type"] == "tool_skipped":
             tool_name = response["content"]["name"]
-            yield {"tool_event": {"tool_skipped": tool_name}}
+            yield {"tool_event": {"name": tool_name, "status": "skipped"}}
         elif response["type"] == "tool_failed":
             tool_name = response["content"]["name"]
-            yield {"tool_event": {"tool_failed": tool_name}}
+            yield {"tool_event": {"name": tool_name, "status": "failed"}}
 
 
 @app.post("/ingest/sync")

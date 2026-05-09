@@ -1,5 +1,5 @@
 import json
-from services import get_openai_client
+from services import get_async_openai_client
 from ingest import get_last_synced_at
 from tools import TOOLS, execute_tool
 from models import Card
@@ -37,7 +37,7 @@ Response Instructions:
 async def run_agent(
     message_history: list[dict],
 ) -> AsyncGenerator[dict, None]:
-    client = get_openai_client()
+    client = get_async_openai_client()
     messages = [{"role": "system", "content": build_system_prompt()}]
 
     messages += message_history
