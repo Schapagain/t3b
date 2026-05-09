@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import datetime, timezone
 from models import Card
 from utils import iso_to_timestamp
 
@@ -59,7 +60,7 @@ def get_all_cards() -> list[Card]:
 
 def update_card(card: Card) -> Card:
     list_mapping = {name: id for id, name in get_lists().items()}
-    member_mapping = {name: id for id, name in get_members().items()}
+    member_mapping = {name.lower(): id for id, name in get_members().items()}
 
     payload = {}
     if card.status:
@@ -67,9 +68,12 @@ def update_card(card: Card) -> Card:
             raise ValueError(f"Unknown status: {card.status!r}")
         payload["idList"] = list_mapping[card.status]
     if card.assignee:
-        if card.assignee not in member_mapping:
+        assignee_lower = card.assignee.lower()
+        if assignee_lower not in member_mapping:
             raise ValueError(f"Unknown assignee: {card.assignee!r}")
-        payload["idMembers"] = [member_mapping[card.assignee]]
+        payload["idMembers"] = [member_mapping[assignee_lower]]
+    if card.due is not None:
+        payload["due"] = datetime.fromtimestamp(card.due, tz=timezone.utc).isoformat()
 
     r = requests.put(
         f"{BASE_URL}/cards/{card.id}",

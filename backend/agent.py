@@ -2,7 +2,7 @@ import json
 from services import get_openai_client
 from ingest import get_last_synced_at
 from tools import TOOLS, execute_tool
-from models import ChatMessage, Card
+from models import Card
 from jsonschema import ValidationError
 from typing import Any
 
@@ -24,6 +24,7 @@ but do not use if explicity date/time calculation is not needed
 - trello_sync: Use this tool only if the user explicitly asks for their cards to be synced, 
 or if the cards were synced more than 30 minutes ago. Do not attempt to use this tool if re-sync is not needed.
 - search_cards: Use this tool to search for cards matching filter criteria or against a semantic query. 
+- update_cards: Use this tool to update card status, assignee, due date in Trello
 
 Response Instructions:
 - Always be concise and specific in your responses
@@ -33,15 +34,14 @@ Response Instructions:
 """
 
 
-def run_agent(message_history: list[ChatMessage]) -> tuple[str, list[str]]:
+def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[dict]]:
     client = get_openai_client()
     messages = [{"role": "system", "content": build_system_prompt()}]
 
-    messages += [m.model_dump() for m in message_history]
+    messages += message_history
 
     tool_calls_used = []
-    cards_found = []
-    found_card_ids = set()
+    cards_by_id = {}
 
     for _ in range(MAX_AGENT_ITERATIONS):
         response = client.chat.completions.create(
@@ -54,9 +54,9 @@ def run_agent(message_history: list[ChatMessage]) -> tuple[str, list[str]]:
         print(f"OPENAI MSG:\n{msg}")
 
         if not msg.tool_calls:
-            return msg.content, tool_calls_used, cards_found
+            return msg.content, tool_calls_used, list(cards_by_id.values()), messages[1:]
 
-        messages.append(msg)
+        messages.append(msg.model_dump(exclude_none=True))
         for tc in msg.tool_calls:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
@@ -67,12 +67,7 @@ def run_agent(message_history: list[ChatMessage]) -> tuple[str, list[str]]:
                 if not result.get("skipped", False) and not name in tool_calls_used:
                     tool_calls_used.append(name)
                 cards_from_tool = result.get("cards", [])
-                cards_found.extend(
-                    filter(
-                        lambda card: card["id"] not in found_card_ids, cards_from_tool
-                    )
-                )
-                found_card_ids.update(map(lambda card: card["id"], cards_found))
+                cards_by_id.update({card["id"]: card for card in cards_from_tool})
                 messages.append(
                     {
                         "role": "tool",
@@ -133,4 +128,4 @@ def run_agent(message_history: list[ChatMessage]) -> tuple[str, list[str]]:
         messages=messages,
     )
     msg = response.choices[0].message
-    return msg.content, tool_calls_used, cards_found
+    return msg.content, tool_calls_used, list(cards_by_id.values()), messages[1:]

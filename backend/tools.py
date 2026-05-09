@@ -1,5 +1,6 @@
 from typing import Any
 from ingest import re_index_db, get_last_synced_at, vector_search, upsert_cards
+from models import Card
 from services import get_collection
 from utils import iso_to_timestamp, timestamp_to_date
 from jsonschema import validate, ValidationError
@@ -97,7 +98,7 @@ def exec_search_cards(args: dict[str, Any]) -> dict[str, Any]:
         cards = [res[3] for res in semantic_results]
 
     summary = "\n".join(
-        f"- {card['name']} | assignee: {card.get('assignee')} | due: {timestamp_to_date(card.get('due'))} | status: {card.get('status')}"
+        f"-  {card['name']} | id: {card['id']} | assignee: {card.get('assignee')} | due: {timestamp_to_date(card.get('due'))} | status: {card.get('status')}"
         for card in cards
     )
     return {
@@ -154,28 +155,40 @@ def exec_update_card(args: dict[str, Any]) -> dict[str, Any]:
     if not cards:
         raise ValueError(f"Card with id {card_id!r} not found")
 
-    card = cards[0]
+    card_data = cards[0]
     assignee_update_msg = None
     status_update_msg = None
     due_update_msg = None
     if assignee_name is not None:
-        card["assignee"] = assignee_name
+        card_data["assignee"] = assignee_name
         assignee_update_msg = f"new assignee: {assignee_name}"
 
     if status is not None:
-        card["status"] = status
+        card_data["status"] = status
         status_update_msg = f"new status: {status}"
 
     if due is not None:
-        card["due"] = due
-        due_udpate_msg = f"new due: {due}"
+        card_data["due"] = iso_to_timestamp(due)
+        due_update_msg = f"new due: {due}"
+
+    card = Card(
+        id=card_data["id"],
+        name=card_data["name"],
+        desc=card_data.get("desc", ""),
+        due=card_data["due"] or None,
+        url=card_data["url"],
+        status=card_data["status"],
+        assignee=card_data.get("assignee") or None,
+        assignee_first_name=card_data.get("assignee_first_name") or None,
+        assignee_last_name=card_data.get("assignee_last_name") or None,
+    )
 
     updated_card = update_card(card)
     upsert_cards([card])
 
     return {
         "result": f"Card updated successfully. {assignee_update_msg} {status_update_msg} {due_update_msg}",
-        "cards": [updated_card],
+        "cards": [card_data],
     }
 
 
@@ -410,7 +423,8 @@ TOOL_UPDATE_CARD = {
             "properties": {
                 "card_id": {
                     "type": "string",
-                    "description": "The card ID to update",
+                    "description": "The card ID to update. This must be the exact id "
+                    "from a prior tool call and never inferred or invented",
                 },
                 "due": {
                     "type": ["string", "null"],

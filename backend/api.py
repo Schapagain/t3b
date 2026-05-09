@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models import ChatMessage, ChatRequest
+from models import ChatRequest
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -25,23 +25,25 @@ app.add_middleware(
 )
 
 
-sessions: dict[str, list[ChatMessage]] = {}
+sessions: dict[str, list[dict]] = {}
 
 
 @app.post("/chat")
 def chat(body: ChatRequest):
     history = sessions.setdefault(body.session_id, [])
-    history.append(ChatMessage(role="user", content=body.message))
+    history.append({"role": "user", "content": body.message})
     print(
         f"New chat request for session id:{body.session_id}\nWe have history:\n{history}"
     )
-    agent_response, tool_calls_used, cards = run_agent(history)
+    agent_response, tool_calls_used, cards, updated_history = run_agent(history)
 
-    history.append(ChatMessage(role="assistant", content=agent_response))
+    updated_history.append({"role": "assistant", "content": agent_response})
+    sessions[body.session_id] = updated_history
+    display_history = [m for m in updated_history if m["role"] in ("user", "assistant")]
     return {
         "agent_response": agent_response,
         "tool_calls_used": tool_calls_used,
-        "history": history,
+        "history": display_history,
         "cards": cards,
     }
 
