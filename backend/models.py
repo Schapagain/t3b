@@ -21,3 +21,14 @@ class Card(BaseModel):
     assignee: str | None
     assignee_first_name: str | None
     assignee_last_name: str | None
+
+
+class ChatResponse(BaseModel):
+    agent_response: str | None
+    tool_calls_used: list[str] | None
+    history: list[dict]
+    cards: list[Card]
+
+
+class ToolEventResponse(BaseModel):
+    tool_event: dict

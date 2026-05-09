@@ -1,12 +1,12 @@
 import os
 import chromadb
-from openai import OpenAI
+from openai import AsyncOpenAI
 from functools import lru_cache
 from constants import OPENAI_EMBEDDING_MODEL
 
 
 @lru_cache(maxsize=1)
-def get_openai_client() -> OpenAI:
+def get_openai_client() -> AsyncOpenAI:
     """
     Create and return an OpenAI client using API key from environment.
 
@@ -19,7 +19,7 @@ def get_openai_client() -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise EnvironmentError("OPENAI_API_KEY not found in environment variables")
-    return OpenAI(api_key=api_key)
+    return AsyncOpenAI(api_key=api_key)
 
 
 @lru_cache(maxsize=1)

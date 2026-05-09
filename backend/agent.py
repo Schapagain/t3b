@@ -4,7 +4,7 @@ from ingest import get_last_synced_at
 from tools import TOOLS, execute_tool
 from models import Card
 from jsonschema import ValidationError
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from constants import (
     MAX_AGENT_ITERATIONS,
@@ -34,7 +34,9 @@ Response Instructions:
 """
 
 
-def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[dict]]:
+async def run_agent(
+    message_history: list[dict],
+) -> AsyncGenerator[dict, None]:
     client = get_openai_client()
     messages = [{"role": "system", "content": build_system_prompt()}]
 
@@ -44,7 +46,7 @@ def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[d
     cards_by_id = {}
 
     for _ in range(MAX_AGENT_ITERATIONS):
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=OPENAI_CHAT_MODEL,
             tools=TOOLS,
             messages=messages,
@@ -54,18 +56,32 @@ def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[d
         print(f"OPENAI MSG:\n{msg}")
 
         if not msg.tool_calls:
-            return msg.content, tool_calls_used, list(cards_by_id.values()), messages[1:]
+            yield {
+                "type": "final_response",
+                "content": {
+                    "message": msg.content,
+                    "tool_calls_used": tool_calls_used,
+                    "cards": list(cards_by_id.values()),
+                    "history": messages[1:],
+                },
+            }
+            return
 
         messages.append(msg.model_dump(exclude_none=True))
         for tc in msg.tool_calls:
             name = tc.function.name
             args = json.loads(tc.function.arguments)
 
+            yield ({"type": "tool_called", "content": {"name": name}})
+
             try:
                 result = execute_tool(name, args)
 
+                if result.get("skipped", False):
+                    yield ({"type": "tool_skipped", "content": {"name": name}})
                 if not result.get("skipped", False) and not name in tool_calls_used:
                     tool_calls_used.append(name)
+                yield ({"type": "tool_finished", "content": {"name": name}})
                 cards_from_tool = result.get("cards", [])
                 cards_by_id.update({card["id"]: card for card in cards_from_tool})
                 messages.append(
@@ -114,6 +130,7 @@ def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[d
                         "content": json.dumps({"error": str(e)}),
                     }
                 )
+                yield {"type": "tool_failed", "content": {"name": name}}
 
     messages.append(
         {
@@ -122,10 +139,19 @@ def run_agent(message_history: list[dict]) -> tuple[str, list[str], list, list[d
             "Create a response for the user with whatever information you were able to gather up to this point, and let the user know what was incomplete.",
         }
     )
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=OPENAI_CHAT_MODEL,
         tools=TOOLS,
         messages=messages,
     )
     msg = response.choices[0].message
-    return msg.content, tool_calls_used, list(cards_by_id.values()), messages[1:]
+    yield {
+        "type": "final_response",
+        "content": {
+            "message": msg.content,
+            "tool_calls_used": tool_calls_used,
+            "cards": list(cards_by_id.values()),
+            "history": messages[1:],
+        },
+    }
+    return
