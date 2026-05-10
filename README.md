@@ -4,6 +4,8 @@ T3B is a chat assistant that lets engineering teams query and update their Trell
 
 This is the final project for **CSC 7644: Applied LLM Development**.
 
+<img width="1073" height="764" alt="image" src="https://github.com/user-attachments/assets/38743906-9226-4d69-91c0-8dba65a1e332" />
+
 ---
 
 ## Features
