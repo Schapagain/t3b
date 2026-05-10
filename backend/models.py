@@ -8,7 +8,8 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str
-    message: str
+    message: str | None = None
+    approved_tool: str | None = None
 
 
 class Card(BaseModel):

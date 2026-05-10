@@ -285,6 +285,10 @@ def execute_tool(
     return executor(args)
 
 
+def tool_requires_approval(tool_name: str) -> bool:
+    return tool_name == "update_card"
+
+
 TOOL_CLOCK_NOW = {
     "type": "function",
     "function": {
@@ -417,7 +421,8 @@ TOOL_UPDATE_CARD = {
     "type": "function",
     "function": {
         "name": "update_card",
-        "description": "Update a card. Only include fields you want to change.",
+        "description": "Update a card. Only include fields that you want to change. "
+        "DO NOT include fields that would stay the same after the update, except for the id",
         "parameters": {
             "type": "object",
             "properties": {

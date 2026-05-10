@@ -28,16 +28,38 @@ app.add_middleware(
 
 
 sessions: dict[str, list[dict]] = {}
+pending_msgs: dict[str, dict] = {}
+pending_tool_calls_used: dict[str, list[str]] = {}
 
 
 @app.post("/chat/stream", response_class=EventSourceResponse)
 async def chat(body: ChatRequest) -> AsyncIterable[ChatResponse | ToolEventResponse]:
     history = sessions.setdefault(body.session_id, [])
-    history.append({"role": "user", "content": body.message})
-    print(
-        f"New chat request for session id:{body.session_id}\nWe have history:\n{history}"
-    )
-    async for response in run_agent(history):
+
+    if body.message:
+        history.append({"role": "user", "content": body.message})
+        print(
+            f"New chat request for session id:{body.session_id}\nWe have history:\n{history}\n\nmsg:\n{body.message}"
+        )
+    approved_tools = []
+    if body.approved_tool:
+        approved_tools.append(body.approved_tool)
+
+    if body.approved_tool:
+        pending_msg = pending_msgs.pop(body.session_id, None)
+        prior_tool_calls = pending_tool_calls_used.pop(body.session_id, None)
+    else:
+        pending_msgs.pop(body.session_id, None)
+        pending_tool_calls_used.pop(body.session_id, None)
+        pending_msg = None
+        prior_tool_calls = None
+
+    async for response in run_agent(
+        history,
+        approved_tools,
+        pending_msg,
+        prior_tool_calls,
+    ):
         if response["type"] == "final_response":
             agent_response = response["content"]["message"]
             tool_calls_used = response["content"]["tool_calls_used"]
@@ -67,6 +89,10 @@ async def chat(body: ChatRequest) -> AsyncIterable[ChatResponse | ToolEventRespo
         elif response["type"] == "tool_failed":
             tool_name = response["content"]["name"]
             yield {"tool_event": {"name": tool_name, "status": "failed"}}
+        elif response["type"] == "tool_approval_required":
+            pending_msgs[body.session_id] = response["pending_msg"]
+            pending_tool_calls_used[body.session_id] = response["tool_calls_used"]
+            yield {"tool_event": {**response["content"], "status": "approval_required"}}
 
 
 @app.post("/ingest/sync")

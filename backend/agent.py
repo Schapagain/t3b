@@ -1,8 +1,9 @@
 import json
-from services import get_async_openai_client
+from services import get_async_openai_client, get_collection
 from ingest import get_last_synced_at
-from tools import TOOLS, execute_tool
+from tools import TOOLS, execute_tool, tool_requires_approval
 from models import Card
+from constants import COLLECTION_NAME
 from jsonschema import ValidationError
 from typing import Any, AsyncGenerator
 
@@ -26,6 +27,8 @@ or if the cards were synced more than 30 minutes ago. Do not attempt to use this
 - search_cards: Use this tool to search for cards matching filter criteria or against a semantic query. 
 - update_cards: Use this tool to update card status, assignee, due date in Trello
 
+If the user rejects a tool call, ask the user what their intent is before calling any more tools.
+
 Response Instructions:
 - Always be concise and specific in your responses
 - NEVER respond to queries not relevant to your role as T3B (very important)
@@ -34,48 +37,94 @@ Response Instructions:
 """
 
 
+def _lookup_card(card_id: str) -> dict | None:
+    result = get_collection(COLLECTION_NAME).get(
+        where={"id": {"$eq": card_id}}, include=["metadatas"]
+    )
+    cards = result.get("metadatas", [])
+    return cards[0] if cards else None
+
+
+def _tc_fields(tc) -> tuple[str, str, dict]:
+    if isinstance(tc, dict):
+        return tc["id"], tc["function"]["name"], json.loads(tc["function"]["arguments"])
+    return tc.id, tc.function.name, json.loads(tc.function.arguments)
+
+
 async def run_agent(
     message_history: list[dict],
+    approved_tools: list[str],
+    pending_msg: dict | None = None,
+    prior_tool_calls_used: list[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     client = get_async_openai_client()
     messages = [{"role": "system", "content": build_system_prompt()}]
 
     messages += message_history
 
-    tool_calls_used = []
+    tool_calls_used = list(prior_tool_calls_used) if prior_tool_calls_used else []
     cards_by_id = {}
 
     for _ in range(MAX_AGENT_ITERATIONS):
-        response = await client.chat.completions.create(
-            model=OPENAI_CHAT_MODEL,
-            tools=TOOLS,
-            messages=messages,
-        )
-        msg = response.choices[0].message
+        if pending_msg:
+            msg_dict = pending_msg
+            pending_msg = None
+            tool_calls = msg_dict["tool_calls"]
+            messages.append(msg_dict)
+        else:
+            response = await client.chat.completions.create(
+                model=OPENAI_CHAT_MODEL,
+                tools=TOOLS,
+                messages=messages,
+            )
+            msg = response.choices[0].message
+            print(f"OPENAI MSG:\n{msg}")
 
-        print(f"OPENAI MSG:\n{msg}")
+            if not msg.tool_calls:
+                yield {
+                    "type": "final_response",
+                    "content": {
+                        "message": msg.content,
+                        "tool_calls_used": tool_calls_used,
+                        "cards": list(cards_by_id.values()),
+                        "history": messages[1:],
+                    },
+                }
+                return
 
-        if not msg.tool_calls:
-            yield {
-                "type": "final_response",
-                "content": {
-                    "message": msg.content,
-                    "tool_calls_used": tool_calls_used,
-                    "cards": list(cards_by_id.values()),
-                    "history": messages[1:],
-                },
-            }
-            return
+            messages.append(msg.model_dump(exclude_none=True))
+            tool_calls = msg.tool_calls
 
-        messages.append(msg.model_dump(exclude_none=True))
-        for tc in msg.tool_calls:
-            name = tc.function.name
-            args = json.loads(tc.function.arguments)
+        for tc in tool_calls:
+            tc_id, name, args = _tc_fields(tc)
+
+            if tool_requires_approval(name) and name not in approved_tools:
+                print(
+                    f'TOOL APPROVAL REQUIRED:\n\nTool name:{name}\n\ncard: {cards_by_id.get(args["card_id"])}'
+                )
+                yield (
+                    {
+                        "type": "tool_approval_required",
+                        "content": {
+                            "name": name,
+                            "args": args,
+                            "card": cards_by_id.get(args["card_id"])
+                            or _lookup_card(args["card_id"]),
+                        },
+                        "pending_msg": messages[-1],
+                        "tool_calls_used": tool_calls_used,
+                    }
+                )
+                return
 
             yield ({"type": "tool_called", "content": {"name": name}})
 
             try:
                 result = execute_tool(name, args)
+
+                # Only allow approval to last for one execution
+                if name in approved_tools:
+                    approved_tools.remove(name)
 
                 if result.get("skipped", False):
                     yield ({"type": "tool_skipped", "content": {"name": name}})
@@ -87,7 +136,7 @@ async def run_agent(
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc_id,
                         "content": json.dumps(result.get("result", "")),
                     }
                 )
@@ -95,7 +144,7 @@ async def run_agent(
                     "Tool executed:\n",
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc_id,
                         "content": json.dumps(result.get("result", "")),
                     },
                 )
@@ -104,7 +153,7 @@ async def run_agent(
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc_id,
                         "content": json.dumps(
                             {"error": f"Validation failed: {e.message}"}
                         ),
@@ -115,7 +164,7 @@ async def run_agent(
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc_id,
                         "content": json.dumps(
                             {"error": f"Tool not recognized: {str(e)}"}
                         ),
@@ -126,7 +175,7 @@ async def run_agent(
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": tc_id,
                         "content": json.dumps({"error": str(e)}),
                     }
                 )
