@@ -9,7 +9,7 @@ This is the final project for **CSC 7644: Applied LLM Development**.
 ## Features
 
 - **Natural language search** — query cards by assignee, status, due date, or semantic similarity
-- **Hybrid retrieval** — combines ChromaDB vector search with BM25 keyword matching for better coverage
+- **Semantic retrieval** — queries are embedded and matched against cards in ChromaDB using vector similarity, with metadata pre-filtering for assignee, status, and due date
 - **Scheduling conflict detection** — checks whether card due dates fall within an assignee's OOO events from Google Calendar
 - **Card updates** — move cards, reassign, or change due dates directly from the chat interface
 - **Human-in-the-loop approval** — all writes require explicit confirmation before going through
@@ -24,7 +24,6 @@ This is the final project for **CSC 7644: Applied LLM Development**.
 | LLM | OpenAI gpt-4o-mini |
 | Embeddings | OpenAI text-embedding-3-small |
 | Vector store | ChromaDB (persistent, local) |
-| Keyword search | BM25 (rank-bm25) |
 | Backend | FastAPI + uvicorn |
 | Frontend | React + Vite + shadcn/ui + Tailwind CSS |
 | External APIs | Trello REST API, Google Calendar (iCal) |
@@ -33,7 +32,7 @@ This is the final project for **CSC 7644: Applied LLM Development**.
 
 The backend exposes a streaming SSE endpoint at `POST /chat/stream`. Each user message is passed to an async agent loop that selects and executes tools (search, update, conflict check) and yields typed events back to the frontend as they happen. When an update is requested, the loop pauses and sends an approval prompt to the UI before writing anything to Trello.
 
-Cards are ingested from Trello, embedded, and stored in ChromaDB. At query time, metadata filters narrow the candidate set first, then BM25 and vector similarity are fused to rank results.
+Cards are ingested from Trello, embedded, and stored in ChromaDB. At query time, metadata filters narrow the candidate set first, then vector similarity ranks the results.
 
 ---
 
@@ -174,5 +173,4 @@ t3b/
 - [FastAPI SSE documentation](https://fastapi.tiangolo.com/) — reference for `EventSourceResponse` and streaming endpoint patterns
 - [ChromaDB documentation](https://docs.trychroma.com/) — collection setup and metadata filtering
 - [Trello REST API documentation](https://developer.atlassian.com/cloud/trello/rest/) — card and board endpoints
-- [rank-bm25](https://github.com/dorianbrown/rank_bm25) — BM25 implementation used for keyword search fusion
 - [shadcn/ui](https://ui.shadcn.com/) — React component library used for the frontend

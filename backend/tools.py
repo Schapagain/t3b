@@ -391,7 +391,7 @@ TOOL_SEARCH_CARDS = {
         "metadata fields: assignee, due, status. Only include"
         "the filters that are relevant to the user query. The metadata fields "
         "are first applied with an AND operator, and then "
-        "the string query is used for vector/bm25 search.",
+        "the string query is used for vector search.",
         "strict": True,
         "parameters": {
             "type": "object",
