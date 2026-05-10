@@ -7,6 +7,15 @@ CALENDAR_URL = os.getenv("GOOGLE_CALENDAR_URL")
 
 
 def _to_date(dt) -> date:
+    """
+    Normalize a datetime or date value to a date.
+
+    Args:
+        dt: A datetime or date object.
+
+    Returns:
+        A date object.
+    """
     return dt.date() if isinstance(dt, datetime) else dt
 
 

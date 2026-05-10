@@ -4,7 +4,6 @@ from trello import Card
 from datetime import datetime
 from constants import COLLECTION_NAME, VECTOR_SIMILARITY_THRESHOLD
 
-last_synced_at: datetime | None = None
 _sync_status = {"last_synced_at": None}
 
 
@@ -30,12 +29,11 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
 
 def upsert_cards(cards: list[Card]) -> None:
     """
-
-    Upsert provided cards' text contents into ChromaDB with their embeddings.
-    Upsert is idempotent: if an ID already exists, it will be updated.
+    Upsert cards into ChromaDB with their embeddings.
+    Idempotent: existing IDs are updated in place.
 
     Args:
-        card_texts: List of text contents in cards
+        cards: List of Card instances to embed and upsert.
     """
     ids = []
     card_texts = []
@@ -69,10 +67,7 @@ def upsert_cards(cards: list[Card]) -> None:
 
 def re_index_db() -> dict[str, int]:
     """
-
-    Get all cards from Trello, embed them, and
-    upsert to ChromaDB
-
+    Fetch all cards from Trello, embed them, and upsert into ChromaDB.
     """
     print("Re-indexing database.")
     cards = get_all_cards()
@@ -91,7 +86,6 @@ def get_last_synced_at() -> datetime:
     return _sync_status["last_synced_at"]
 
 
-# VECTOR SEARCH
 def vector_search(
     query: str, top_k: int, cards: list[Card] = []
 ) -> list[tuple[str, float, str, dict]]:
@@ -111,7 +105,6 @@ def vector_search(
     query_embedding = get_embeddings([query])[0]
     card_ids = [card["id"] for card in cards] if cards else None
 
-    # ChromaDB query needs to include "documents", "distances", and "metadatas"
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
@@ -123,7 +116,6 @@ def vector_search(
         ids=card_ids,
     )
 
-    # Extract results from nested structure
     ids = results["ids"][0] if results["ids"] else []
     documents = results["documents"][0] if results["documents"] else []
     distances = results["distances"][0] if results["distances"] else []
@@ -141,11 +133,6 @@ def vector_search(
                 metadatas[i] if i < len(metadatas) else {},
             )
         )
-
-    print(f"\nTop {top_k} Vector Results (threshold: {VECTOR_SIMILARITY_THRESHOLD}):")
-    for i, (doc_id, similarity, text, metadata) in enumerate(results, 1):
-        print(f"\n[{i}] Similarity: {similarity:.4f} | ID: {doc_id}")
-        print(f"    {text[:200]}...")
 
     results = [
         (id, sim, doc, meta)

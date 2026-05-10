@@ -35,6 +35,16 @@ def exec_trello_sync(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_chroma_where(args: dict[str, Any]) -> dict:
+    """
+    Build a ChromaDB where-clause from structured filter arguments.
+
+    Args:
+        args: Dictionary that may contain assignee, status, due_before,
+            due_after, and due_within keys. Missing or falsy keys are ignored.
+
+    Returns:
+        A ChromaDB-compatible filter dict, or None if no filters were provided.
+    """
     filters = []
     if args.get("assignee"):
         filters.append(
@@ -94,7 +104,7 @@ def exec_search_cards(args: dict[str, Any]) -> dict[str, Any]:
     cards = result.get("metadatas", [])
 
     if args["query"]:
-        semantic_results = vector_search(args["query"], 2, cards)
+        semantic_results = vector_search(args["query"], 5, cards)
         cards = [res[3] for res in semantic_results]
 
     summary = "\n".join(
@@ -273,11 +283,9 @@ def execute_tool(
         ValidationError: If arguments are invalid.
         KeyError: If tool is not recognized.
     """
-    # Validate arguments before execution
     validate_tool_args(tool_name, args)
 
     print(f"Executing tool: {tool_name} with args: {args}")
-    # Get and execute the tool
     if tool_name not in TOOL_EXECUTORS:
         raise KeyError(f"No executor found for tool: {tool_name}")
 
@@ -286,6 +294,15 @@ def execute_tool(
 
 
 def tool_requires_approval(tool_name: str) -> bool:
+    """
+    Return whether a tool requires human approval before execution.
+
+    Args:
+        tool_name: Name of the tool.
+
+    Returns:
+        True if the tool requires approval, False otherwise.
+    """
     return tool_name == "update_card"
 
 

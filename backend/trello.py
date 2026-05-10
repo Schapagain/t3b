@@ -13,6 +13,12 @@ AUTH = {"key": TRELLO_API_KEY, "token": TRELLO_TOKEN}
 
 
 def get_lists() -> dict[str, str]:
+    """
+    Fetch all lists on the configured Trello board.
+
+    Returns:
+        Dictionary mapping list ID to list name.
+    """
     r = requests.get(
         f"{BASE_URL}/boards/{TRELLO_BOARD_ID}/lists",
         params={**AUTH, "fields": "id,name"},
@@ -22,6 +28,12 @@ def get_lists() -> dict[str, str]:
 
 
 def get_members() -> dict[str, str]:
+    """
+    Fetch all members of the configured Trello board.
+
+    Returns:
+        Dictionary mapping member ID to full name.
+    """
     r = requests.get(
         f"{BASE_URL}/boards/{TRELLO_BOARD_ID}/members",
         params={**AUTH, "fields": "id,fullName"},
@@ -31,6 +43,12 @@ def get_members() -> dict[str, str]:
 
 
 def get_all_cards() -> list[Card]:
+    """
+    Fetch all cards from the configured Trello board and return them as Card models.
+
+    Returns:
+        List of Card instances with metadata resolved from board lists and members.
+    """
     list_mapping = get_lists()
     member_mapping = get_members()
     r = requests.get(
@@ -59,6 +77,21 @@ def get_all_cards() -> list[Card]:
 
 
 def update_card(card: Card) -> Card:
+    """
+    Push updates for a card to Trello via the REST API.
+
+    Args:
+        card: Card instance with updated fields. Only non-None fields
+            (status, assignee, due) are included in the payload.
+
+    Returns:
+        The same Card instance passed in, unchanged.
+
+    Raises:
+        ValueError: If the card's status or assignee does not match a known
+            list name or board member.
+        requests.HTTPError: If the Trello API returns a non-2xx response.
+    """
     list_mapping = {name: id for id, name in get_lists().items()}
     member_mapping = {name.lower(): id for id, name in get_members().items()}
 

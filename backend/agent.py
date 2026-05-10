@@ -14,6 +14,12 @@ from constants import (
 
 
 def build_system_prompt() -> str:
+    """
+    Build the system prompt for the agent, including the last sync time.
+
+    Returns:
+        System prompt string with tool descriptions and response instructions.
+    """
     last_synced = get_last_synced_at()
     return f"""You are T3B, an assistant that helps engineering teams manage their Trello boards.
 You can search for cards, detect duplicates, identify scheduling conflicts, and update cards. 
@@ -25,7 +31,8 @@ but do not use if explicity date/time calculation is not needed
 - trello_sync: Use this tool only if the user explicitly asks for their cards to be synced, 
 or if the cards were synced more than 30 minutes ago. Do not attempt to use this tool if re-sync is not needed.
 - search_cards: Use this tool to search for cards matching filter criteria or against a semantic query. 
-- update_cards: Use this tool to update card status, assignee, due date in Trello
+- update_card: Use this tool to update card status, assignee, due date in Trello.
+IMPORTANT: You MUST call search_cards first to obtain the card's exact ID before calling update_card. Never invent or infer a card ID.
 
 If the user rejects a tool call, ask the user what their intent is before calling any more tools.
 
@@ -38,6 +45,15 @@ Response Instructions:
 
 
 def _lookup_card(card_id: str) -> dict | None:
+    """
+    Look up a card's metadata from ChromaDB by its Trello card ID.
+
+    Args:
+        card_id: The Trello card ID to look up.
+
+    Returns:
+        Card metadata dict if found, None otherwise.
+    """
     result = get_collection(COLLECTION_NAME).get(
         where={"id": {"$eq": card_id}}, include=["metadatas"]
     )
@@ -46,6 +62,18 @@ def _lookup_card(card_id: str) -> dict | None:
 
 
 def _tc_fields(tc) -> tuple[str, str, dict]:
+    """
+    Extract (id, name, args) from a tool call regardless of its representation.
+
+    Handles both OpenAI SDK objects (from live completions) and plain dicts
+    (from deserialized pending messages restored across the approval pause).
+
+    Args:
+        tc: A tool call object or dict.
+
+    Returns:
+        Tuple of (tool_call_id, function_name, parsed_arguments_dict).
+    """
     if isinstance(tc, dict):
         return tc["id"], tc["function"]["name"], json.loads(tc["function"]["arguments"])
     return tc.id, tc.function.name, json.loads(tc.function.arguments)
@@ -57,6 +85,28 @@ async def run_agent(
     pending_msg: dict | None = None,
     prior_tool_calls_used: list[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
+    """
+    Run the agentic tool-calling loop and yield typed events as work happens.
+
+    Yields events of type: tool_called, tool_finished, tool_skipped,
+    tool_failed, tool_approval_required, and final_response. If pending_msg
+    is provided, the first LLM call is skipped and execution resumes directly
+    from the saved tool calls (used after human approval of update_card).
+
+    Args:
+        message_history: Full conversation history excluding the system prompt.
+        approved_tools: Tool names that have been approved for execution in
+            this request.
+        pending_msg: Saved assistant message dict from a paused approval flow.
+            When provided, the loop resumes from its tool calls without an
+            extra LLM call.
+        prior_tool_calls_used: Tool names already used before the approval
+            pause, carried forward so the final response includes them.
+
+    Yields:
+        Dicts with a 'type' key and a 'content' key (plus extra keys for
+        tool_approval_required).
+    """
     client = get_async_openai_client()
     messages = [{"role": "system", "content": build_system_prompt()}]
 
@@ -184,7 +234,7 @@ async def run_agent(
     messages.append(
         {
             "role": "system",
-            "content": "Max tool iterations have been reached, and you may not use any tools anymore unless the user sends futher instructions."
+            "content": "Max tool iterations have been reached, and you may not use any tools anymore unless the user sends further instructions."
             "Create a response for the user with whatever information you were able to gather up to this point, and let the user know what was incomplete.",
         }
     )

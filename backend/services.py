@@ -26,8 +26,7 @@ def get_async_openai_client() -> AsyncOpenAI:
 @lru_cache(maxsize=1)
 def get_openai_client() -> OpenAI:
     """
-    Create and return an synchronous version of the OpenAI client
-    using API key from environment.
+    Create and return a synchronous OpenAI client using API key from environment.
 
     Returns:
         Configured OpenAI client instance.
@@ -44,8 +43,7 @@ def get_openai_client() -> OpenAI:
 @lru_cache(maxsize=1)
 def get_chroma_client() -> chromadb.PersistentClient:
     """
-    Create a persistent ChromaDB client at the location defined.
-    in the environment variable: CHROMA_DB_PATH
+    Create a persistent ChromaDB client at the path set in CHROMA_DB_PATH.
 
     Returns:
         ChromaDB PersistentClient instance.
@@ -69,5 +67,5 @@ def get_collection(collection_name: str) -> chromadb.Collection:
     """
     chroma_client = get_chroma_client()
     return chroma_client.get_or_create_collection(
-        name=collection_name, metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+        name=collection_name, metadata={"hnsw:space": "cosine"}
     )

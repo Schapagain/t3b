@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from collections.abc import AsyncIterable, Iterable
+from collections.abc import AsyncIterable
 from models import ChatRequest, ChatResponse, ToolEventResponse
 from fastapi import FastAPI
 from fastapi.sse import EventSourceResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from ingest import re_index_db, get_last_synced_at
 import json
 from agent import run_agent
@@ -34,6 +33,21 @@ pending_tool_calls_used: dict[str, list[str]] = {}
 
 @app.post("/chat/stream", response_class=EventSourceResponse)
 async def chat(body: ChatRequest) -> AsyncIterable[ChatResponse | ToolEventResponse]:
+    """
+    Streaming chat endpoint that runs the agent loop and yields SSE events.
+
+    Manages per-session message history and approval state. On approval,
+    restores the pending assistant message so the agent can resume without
+    an extra LLM call. On rejection, clears pending state so the agent
+    re-runs from history with the denial included.
+
+    Args:
+        body: Chat request with session_id, optional message, and
+            optional approved_tool name.
+
+    Yields:
+        SSE-encoded ChatResponse or ToolEventResponse dicts.
+    """
     history = sessions.setdefault(body.session_id, [])
 
     if body.message:
@@ -97,11 +111,23 @@ async def chat(body: ChatRequest) -> AsyncIterable[ChatResponse | ToolEventRespo
 
 @app.post("/ingest/sync")
 def ingest_sync():
+    """
+    Trigger a full re-index of Trello cards into ChromaDB.
+
+    Returns:
+        Dict with cards_ingested count.
+    """
     response = re_index_db()
     return {"cards_ingested": response.get("cards_ingested", 0)}
 
 
 @app.get("/ingest/last_synced_at")
 def ingest_last_synced_at():
+    """
+    Return the timestamp of the most recent Trello sync.
+
+    Returns:
+        Dict with last_synced_at as a datetime or None if never synced.
+    """
     last_synced_at = get_last_synced_at()
     return {"last_synced_at": last_synced_at}
